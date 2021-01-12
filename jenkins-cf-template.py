@@ -1,4 +1,7 @@
 """Generating CloudFormation template."""
+from ipaddress import ip_network
+
+from ipify import get_ip
 
 from troposphere import (
     Base64,
@@ -29,11 +32,16 @@ from awacs.sts import AssumeRole
 
 ApplicationName = "jenkins"
 ApplicationPort = "8080"
-
-GithubAccount = "hoon"
+GithubAccount = "dokkl"
 GithubAnsibleURL = "https://github.com/{}/ansible".format(GithubAccount)
 
-AnsiblePullCmd = "/usr/bin/ansible-pull -U {} {}.yml -i localhost".format(GithubAnsibleURL, ApplicationName)
+PublicCidrIp = str(ip_network(get_ip()))
+
+AnsiblePullCmd = \
+"/usr/bin/ansible-pull -U {} {}.yml -i localhost".format( GithubAnsibleURL,
+ApplicationName
+)
+
 
 t = Template()
 
@@ -54,7 +62,7 @@ t.add_resource(ec2.SecurityGroup(
             IpProtocol="tcp",
             FromPort="22",
             ToPort="22",
-            CidrIp="0.0.0.0/0",
+            CidrIp=PublicCidrIp,
         ),
         ec2.SecurityGroupRule(
             IpProtocol="tcp",
@@ -65,12 +73,11 @@ t.add_resource(ec2.SecurityGroup(
     ],
 ))
 
-ud = Base64(Join('\n', [
-    "#!/bin/bash",
-    "yum install --enablerepo=epel -y git",
-    "pip install ansible",
-    AnsiblePullCmd,
-    "echo '*/10 * * * * root {}' > /etc/cron.d/ansible-pull".format(AnsiblePullCmd)
+ud = Base64(Join('\n', [ "#!/bin/bash",
+"yum install --enablerepo=epel -y git", 
+"yum install --enablerepo=epel -y ansible",
+AnsiblePullCmd,
+"echo '*/10 * * * * {}' > /etc/cron.d/ansible-pull".format(AnsiblePullCmd)
 ]))
 
 t.add_resource(Role(
@@ -89,7 +96,7 @@ t.add_resource(Role(
 t.add_resource(InstanceProfile(
     "InstanceProfile",
     Path="/",
-    Roles=[Ref("Role")] 
+    Roles=[Ref("Role")]
 ))
 
 t.add_resource(ec2.Instance(
@@ -118,4 +125,3 @@ t.add_output(Output(
 ))
 
 print t.to_json()
-
